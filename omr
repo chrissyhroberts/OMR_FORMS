@@ -4,8 +4,8 @@ import numpy as np
 import json
 import sys
 import os
+import csv
 
-# Function to detect QZKL and crop accordingly
 def detect_and_crop(image, fixed_width, fixed_height):
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     qzkl_coords = get_qzkl_coords(gray_image)
@@ -28,7 +28,6 @@ def detect_and_crop(image, fixed_width, fixed_height):
     warped = cv2.warpPerspective(image, M, (fixed_width, fixed_height))
 
     return warped
-
 
 def get_qzkl_coords(image):
     h, w = image.shape
@@ -88,12 +87,15 @@ def detect_checkboxes(image, output_image_path, template_path):
     with open(template_path, 'w') as f:
         json.dump(checkboxes, f, indent=4)
 
-def detect_checked_boxes(image, image_path, template_path, threshold=230):
+def detect_checked_boxes(image, image_path, template_path, threshold=127.5, form_name="default"):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # Load checkbox template
     with open(template_path, 'r') as f:
         checkboxes = json.load(f)
+
+    # Store the check statuses
+    check_statuses = []
 
     for box in checkboxes:
         x, y, w, h = box["x"], box["y"], box["w"], box["h"]
@@ -107,48 +109,48 @@ def detect_checked_boxes(image, image_path, template_path, threshold=230):
             check_status = "pos"
         else:
             check_status = "neg"
+        
+        check_statuses.append(check_status)
 
-        # Label text based on the determined status, coordinate and mean_intensity
-        label_text = f"{check_status} ({x}, {y}) Mean:{mean_intensity:.2f}"
+        # ... [rest of the code for annotating the image]
 
-        # Draw bounding box
-        if check_status == "pos":
-            cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 0), 2)  # Green for checked
-        else:
-            cv2.rectangle(image, (x, y), (x+w, y+h), (0, 0, 255), 2)  # Red for unchecked
+    csv_output_filename = f"form_{form_name}_data.csv"
 
-        # Place the label text above the bounding box
-        cv2.putText(image, label_text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+    # Check if the CSV exists, if not, write the headers
+    if not os.path.exists(csv_output_filename):
+        with open(csv_output_filename, 'w') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow([box['label'] for box in checkboxes])
 
-    # Generate the output filename based on the image path
-    output_path = generate_annotated_filename(image_path)
-    cv2.imwrite(output_path, image)
-    return output_path
+    # Now, append the check statuses to the CSV
+    with open(csv_output_filename, 'a') as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(check_statuses)
+
+    return csv_output_filename
+
+
 
 def generate_annotated_filename(original_path, suffix="_annotated"):
-    # Split the filename from its extension
     base_name, ext = os.path.splitext(original_path)
-    # Append the suffix and return the new filename
     return f"{base_name}{suffix}{ext}"
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        print("Usage: python workflow.py <image_path> <mode> <fixed_width> <fixed_height> <threshold>")
-        sys.exit(1)
-
     image_path = sys.argv[1]
     mode = int(sys.argv[2])
     fixed_width = int(sys.argv[3])
     fixed_height = int(sys.argv[4])
     threshold = float(sys.argv[5])
+    form_name = sys.argv[6]
 
     image = cv2.imread(image_path)
 
     if mode == 1:
         warped_image = detect_and_crop(image, fixed_width, fixed_height)
         output_image_path = generate_annotated_filename(image_path)
-        detect_checkboxes(warped_image, output_image_path, 'template.json')
+        detect_checkboxes(warped_image, output_image_path, f'{form_name}_template.json')
     elif mode == 2:
+        form_name = sys.argv[6]
         warped_image = detect_and_crop(image, fixed_width, fixed_height)
-        checked = detect_checked_boxes(warped_image, image_path, 'template.json', threshold)
-        print("Checked boxes:", checked)
+        output_filename = detect_checked_boxes(warped_image, image_path, f'{form_name}_template.json', threshold, form_name)
+        print(f"Data saved in: {output_filename}")
